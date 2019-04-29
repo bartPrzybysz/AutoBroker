@@ -21,7 +21,7 @@ class JSONEncoder(json.JSONEncoder):
 
 tickers = set()
 historical_data = dict()
-portfolio = pd.DataFrame(columns=['Sharpe (unadjusted)'])
+portfolio = pd.DataFrame(columns=['Sharpe (unadjusted)', 'Sharpe (adjusted)'])
 
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
@@ -310,12 +310,14 @@ def sharpe_ratios(weekly_data: Dict[str, pd.DataFrame] = None) \
         sharpe_26 = _sharpe_single(data, 26)
         sharpe_13 = _sharpe_single(data, 13)
 
-        # Assign average of sharpe ratios to ticker
         average = (sharpe_52 + sharpe_26 + sharpe_13) / 3
+        adjusted = average ** 1.5 if average > 0.2 else 0
 
         sharpes[ticker] = average
 
         # Update portfolio
         portfolio.loc[ticker]['Sharpe (unadjusted)'] = average
+        portfolio.loc[ticker]['Sharpe (adjusted)'] = adjusted
 
     return sharpes
+
