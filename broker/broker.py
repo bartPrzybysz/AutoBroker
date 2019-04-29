@@ -29,9 +29,12 @@ portfolio = pd.DataFrame(columns=[
     'Target (cnt)', 'Target ($)', 'Target (%)'
 ])
 contracts = dict()
+sell_orders = list()
+buy_orders = list()
 
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
+    account = settings['TWS_account']
 except Exception as e:
     print('Loading settigs failed')
     print(e)
@@ -382,6 +385,7 @@ def get_prices(symbols: Set[str] = None) -> Dict[str, float]:
     global portfolio
     prices = dict()
 
+    # Get the latest sell price for each ticker
     prices_pull = web.DataReader(list(symbols), 'iex-last')
     
     for index, row in prices_pull.iterrows():
@@ -395,6 +399,8 @@ def actual_portfolio():
     """
     Get data on actual positions from TWS, store in portfolio dataframe
     """
+
+    # if account not set, pick active account
     global account
     if account == 'auto':
         account_value = [v for v in ib.accountValues() 
@@ -414,6 +420,7 @@ def actual_portfolio():
         ticker = position.contract.symbol
         count = position.position
         price = position.avgCost
+        value = price * count
 
         if ticker not in portfolio.index:
             portfolio.loc[ticker] = None
@@ -421,6 +428,72 @@ def actual_portfolio():
         contracts[ticker] = position.contract
         portfolio.loc[ticker]['Actual (cnt)'] = count
         portfolio.loc[ticker]['Price'] = price
-        portfolio.loc[ticker]['Actual ($)'] = count * price
-        portfolio.loc[ticker]['Actual (%)'] = (price / portfolio_value) * 100
+        portfolio.loc[ticker]['Actual ($)'] = value
+        portfolio.loc[ticker]['Actual (%)'] = (value / portfolio_value) * 100
+    
+    # Fill blank values with zeros
+    portfolio['Actual (cnt)'].fillna(0, inplace=True)
+    portfolio['Actual ($)'].fillna(0, inplace=True)
+    portfolio['Actual (%)'].fillna(0, inplace=True)
+
+
+def target_portfolio():
+    """
+    Calculate target portfolio, store in portfolio dataframe
+    """
+
+    # Sort portfolio by sharpe ratio
+    global portfolio
+    portfolio = portfolio.sort_values(by=['Sharpe (unadjusted)'], 
+                                      ascending=False)
+
+    # Adjust sharpe ratio to zero for tickers that will not be used
+    # (only leave max number of top tickers)
+    global settings
+    max_size = settings['max_portfolio_size']
+    portfolio.iloc[max_size:, 2] = 0
+    
+    sum_sharpe = portfolio.loc[:,'Sharpe (adjusted)'].sum()
+
+    global portfolio_value
+
+    # Populate portfolio dataframe
+    for ticker, row in portfolio.iterrows():
+        target_percentage = row['Sharpe (adjusted)'] / sum_sharpe
+        target_value = target_percentage * portfolio_value
+        target_cnt = target_value / row['Price']
+
+        portfolio.loc[ticker, 'Target (%)'] = target_percentage * 100
+        portfolio.loc[ticker, 'Target ($)'] = target_value
+        portfolio.loc[ticker, 'Target (cnt)'] = target_cnt
+
+
+def generate_sell_orders():
+    """
+    Doc here
+    """
+    
+    global sell_orders
+    global contracts
+
+    for ticker, row in portfolio.iterrows():
+        if row['Actual (%)'] - row['Target (%)'] > 2:
+            if ticker in contracts.keys():
+                contract = contracts[ticker]
+            else:
+                contract = Stock(ticker, 'SMART', 'USD')
+                ib.qualifyContracts(contract)
+                contracts[ticker] = contract 
+            
+            if row['Target (cnt)'] == 0:
+                number = row['Actual (cnt)']
+            else:
+                number = row['Actual (cnt)'] - row['Target (cnt)']
+                number = number - (number % 25) # Round down
+
+            order = Order(action='SELL', orderType='MIDPRICE', totalQuantity=number)
+
+            sell_orders.append((contract, order))
+    
+    return sell_orders
 

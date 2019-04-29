@@ -2,5 +2,6 @@
     "TWS_ip" : "localhost",
     "TWS_port" : 7497,
     "TWS_id" : 0,
-    "TWS_account" : "auto"
+    "TWS_account" : "auto",
+    "max_portfolio_size" : 13
 }
