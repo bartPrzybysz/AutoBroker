@@ -1,7 +1,7 @@
 import json
 from ib_insync import *
 import pandas as pd
-from pandas_datareader import data as pd_data
+from pandas_datareader import data as web
 from typing import Set, Dict
 from datetime import datetime, timedelta
 
@@ -21,7 +21,8 @@ class JSONEncoder(json.JSONEncoder):
 
 tickers = set()
 historical_data = dict()
-portfolio = pd.DataFrame(columns=['Sharpe (unadjusted)', 'Sharpe (adjusted)'])
+portfolio = pd.DataFrame(columns=['Price', 'Sharpe (unadjusted)', 
+                                  'Sharpe (adjusted)'])
 
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
@@ -70,7 +71,6 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
 
     symbols -- Set of ticker symbols (example: {'TSLA', 'MSFT'})
     """
-
     if symbols is None:
         global tickers
         symbols = tickers
@@ -108,7 +108,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
     missing_tickers = symbols - set(cached_data.keys())
     
     if len(missing_tickers) > 0:
-        data_pull = pd_data.DataReader(
+        data_pull = web.DataReader(
             list(missing_tickers), 'iex', start_date, end_date)
     
         for i, week in enumerate(week_dates):
@@ -152,7 +152,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
 
             # if there is no data for that week get it from iex
             if week_from_cache.empty:
-                data_pull = pd_data.DataReader(ticker, 'iex', week[0], week[-1])
+                data_pull = web.DataReader(ticker, 'iex', week[0], week[-1])
 
                 week_series = [
                     data_pull.loc[day, :]
@@ -321,3 +321,25 @@ def sharpe_ratios(weekly_data: Dict[str, pd.DataFrame] = None) \
 
     return sharpes
 
+
+def get_prices(symbols: Set[str] = None) -> Dict[str, float]:
+    """
+    Get current price of each ticker. Return set of ticker symbols mapped to 
+    a float value (USD).
+
+    symbols -- set of ticker symbols
+    """
+    if symbols is None:
+        global tickers
+        symbols = tickers
+    
+    global portfolio
+    prices = dict()
+
+    prices_pull = web.DataReader(list(symbols), 'iex-last')
+    
+    for index, row in prices_pull.iterrows():
+        portfolio.loc[row['symbol']]['Price'] = row['price']
+        prices[row['symbol']] = row['price']
+    
+    return prices
