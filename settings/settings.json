@@ -3,5 +3,6 @@
     "TWS_port" : 7497,
     "TWS_id" : 0,
     "TWS_account" : "auto",
-    "max_portfolio_size" : 13
+    "max_portfolio_size" : 13, 
+    "round_quantities_to" : 25
 }
