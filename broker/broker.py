@@ -395,14 +395,17 @@ def actual_portfolio():
     """
     Get data on actual positions from TWS, store in portfolio dataframe
     """
-    account_value = [v for v in ib.accountValues() 
-                     if v.tag == 'NetLiquidation'][0]
+    global account
+    if account == 'auto':
+        account_value = [v for v in ib.accountValues() 
+                        if v.tag == 'NetLiquidation'][0]
+        account = account_value.account
+    else:
+        account_value = [v for v in ib.accountValues(account) 
+                        if v.tag == 'NetLiquidation'][0]
     
     global portfolio_value
     portfolio_value = float(account_value.value)
-
-    global account
-    account = account_value.account
 
     global contracts
     global portfolio

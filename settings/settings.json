@@ -1,5 +1,6 @@
 {
     "TWS_ip" : "localhost",
     "TWS_port" : 7497,
-    "TWS_id" : 0
+    "TWS_id" : 0,
+    "TWS_account" : "auto"
 }
