@@ -474,16 +474,11 @@ def generate_sell_orders():
     """
     
     global sell_orders
-    global contracts
 
     for ticker, row in portfolio.iterrows():
         if row['Actual (%)'] - row['Target (%)'] > 2:
-            if ticker in contracts.keys():
-                contract = contracts[ticker]
-            else:
-                contract = Stock(ticker, 'SMART', 'USD')
-                ib.qualifyContracts(contract)
-                contracts[ticker] = contract 
+            contract = Stock(ticker, 'SMART', 'USD')
+            ib.qualifyContracts(contract)
             
             if row['Target (cnt)'] == 0:
                 number = row['Actual (cnt)']
@@ -491,9 +486,19 @@ def generate_sell_orders():
                 number = row['Actual (cnt)'] - row['Target (cnt)']
                 number = number - (number % 25) # Round down
 
-            order = Order(action='SELL', orderType='MIDPRICE', totalQuantity=number)
+            order = Order(action='SELL', orderType='MIDPRICE', totalQuantity=int(number))
 
             sell_orders.append((contract, order))
     
     return sell_orders
 
+
+def execute_sell_orders():
+    global sell_orders
+
+    trades = list()
+
+    for order in sell_orders:
+        trades.append(ib.placeOrder(*order))
+    
+    return trades
