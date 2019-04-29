@@ -21,8 +21,14 @@ class JSONEncoder(json.JSONEncoder):
 
 tickers = set()
 historical_data = dict()
-portfolio = pd.DataFrame(columns=['Price', 'Sharpe (unadjusted)', 
-                                  'Sharpe (adjusted)'])
+portfolio_value = float()
+account = str()
+portfolio = pd.DataFrame(columns=[
+    'Price', 'Sharpe (unadjusted)', 'Sharpe (adjusted)',
+    'Actual (cnt)', 'Actual ($)', 'Actual (%)',
+    'Target (cnt)', 'Target ($)', 'Target (%)'
+])
+contracts = dict()
 
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
@@ -107,7 +113,46 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
     # if tickers are missing in cached data, get iex data
     missing_tickers = symbols - set(cached_data.keys())
     
-    if len(missing_tickers) > 0:
+    # Pulling data for one ticker is annoyingly slightly different
+    # from pulling data for multiple tickers
+    if len(missing_tickers) == 1:
+        data_pull = web.DataReader(
+            list(missing_tickers)[0], 'iex', start_date, end_date)
+        
+        for i, week in enumerate(week_dates):
+            # Get historical data rows for each day of the week 
+            # (if there is data for that day)
+            week_series = [
+                data_pull.loc[day, :]
+                for day in week
+                if day in data_pull.index
+            ]
+
+            # Populate weekly data for each ticker
+            for ticker in missing_tickers:
+                # Place weekly average for each column indexed by week 
+                # number
+                historical_data[ticker].loc[i + 1] = [
+                    # Week date is first day of week
+                    week[0],
+
+                    # Week open is open of first day
+                    week_series[0].loc['open'],
+
+                    # Week high is highest high of the week
+                    max(day.loc['high'] for day in week_series),
+
+                    # Week low is lowest low of the week
+                    min(day.loc['low'] for day in week_series),
+
+                    # Week close is close of last day
+                    week_series[-1].loc['close'],
+
+                    # Week volume is last volume of week
+                    week_series[-1].loc['volume']
+                ]
+
+    elif len(missing_tickers) > 1:
         data_pull = web.DataReader(
             list(missing_tickers), 'iex', start_date, end_date)
     
@@ -122,7 +167,8 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
 
             # Populate weekly data for each ticker
             for ticker in missing_tickers:
-                # Place weekly average for each column indexed by week number
+                # Place weekly average for each column indexed by week 
+                # number
                 historical_data[ticker].loc[i + 1] = [
                     # Week date is first day of week
                     week[0],
@@ -324,8 +370,8 @@ def sharpe_ratios(weekly_data: Dict[str, pd.DataFrame] = None) \
 
 def get_prices(symbols: Set[str] = None) -> Dict[str, float]:
     """
-    Get current price of each ticker. Return set of ticker symbols mapped to 
-    a float value (USD).
+    Get current price of each ticker. Return set of ticker symbols 
+    mapped to a float value (USD).
 
     symbols -- set of ticker symbols
     """
@@ -343,3 +389,35 @@ def get_prices(symbols: Set[str] = None) -> Dict[str, float]:
         prices[row['symbol']] = row['price']
     
     return prices
+
+
+def actual_portfolio():
+    """
+    Get data on actual positions from TWS, store in portfolio dataframe
+    """
+    account_value = [v for v in ib.accountValues() 
+                     if v.tag == 'NetLiquidation'][0]
+    
+    global portfolio_value
+    portfolio_value = float(account_value.value)
+
+    global account
+    account = account_value.account
+
+    global contracts
+    global portfolio
+
+    for position in ib.positions(account):
+        ticker = position.contract.symbol
+        count = position.position
+        price = position.avgCost
+
+        if ticker not in portfolio.index:
+            portfolio.loc[ticker] = None
+
+        contracts[ticker] = position.contract
+        portfolio.loc[ticker]['Actual (cnt)'] = count
+        portfolio.loc[ticker]['Price'] = price
+        portfolio.loc[ticker]['Actual ($)'] = count * price
+        portfolio.loc[ticker]['Actual (%)'] = (price / portfolio_value) * 100
+
