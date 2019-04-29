@@ -21,6 +21,7 @@ class JSONEncoder(json.JSONEncoder):
 
 tickers = set()
 historical_data = dict()
+portfolio = pd.DataFrame(columns=['Sharpe (unadjusted)'])
 
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
@@ -50,6 +51,11 @@ def get_tickers(path : str = TICKERS_PATH) -> Set[str]:
     global tickers
     tickers = set(ticker_series)
 
+    # if tickers are not in portfolio, add them
+    global portfolio
+    missing_tickers = list(tickers - set(portfolio.index))
+    portfolio = portfolio.reindex(portfolio.index.union(missing_tickers))
+
     return tickers
 
 
@@ -66,7 +72,8 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
     """
 
     if symbols is None:
-        symbols = get_tickers()
+        global tickers
+        symbols = tickers
     
     # Set start_date to Monday of 52 weeks ago, end_date to last friday
     cur_weekday = datetime.now().weekday()
@@ -101,7 +108,6 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
     missing_tickers = symbols - set(cached_data.keys())
     
     if len(missing_tickers) > 0:
-        print('Pulling data for', missing_tickers)
         data_pull = pd_data.DataReader(
             list(missing_tickers), 'iex', start_date, end_date)
     
@@ -159,19 +165,19 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
                     week[0],
 
                     # Week open is open of first day
-                    week_series[0].loc['open'].loc[ticker],
+                    week_series[0].loc['open'],
 
                     # Week high is highest high of the week
-                    max(day.loc['high'].loc[ticker] for day in week_series),
+                    max(day.loc['high'] for day in week_series),
 
                     # Week low is lowest low of the week
-                    min(day.loc['low'].loc[ticker] for day in week_series),
+                    min(day.loc['low'] for day in week_series),
 
                     # Week close is close of last day
-                    week_series[-1].loc['close'].loc[ticker],
+                    week_series[-1].loc['close'],
 
                     # Week volume is last volume of week
-                    week_series[-1].loc['volume'].loc[ticker]
+                    week_series[-1].loc['volume']
                 ]
             else:
                 # Use cached data
@@ -182,3 +188,134 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
         json.dump(historical_data, historical_cache, cls=JSONEncoder)
 
     return historical_data
+
+
+def _sharpe_single(weekly_change: pd.DataFrame, weeks: int = 52) -> float:
+    """
+    Internal hepler function
+
+    Calculate sharpe ratio of specified data over specifed number of 
+    weeks. Return numeric value.
+
+    weekly_change --  pandas DataFrame containing column 'change'
+    weeks -- number of weeks to account in sharpe ratio
+    """
+
+    # Get change data of weeks in question
+    total_weeks = weekly_change.iloc[:, 0].count()
+    change = weekly_change.loc[total_weeks-weeks : total_weeks, 'change']
+
+    # Calculate average change
+    average = change.mean(skipna=True)
+
+    # Calculate standard deviation
+    deviation = change.std(skipna=True)
+
+    return average / deviation
+
+
+def _weekly_change(weekly_data: Dict[str, pd.DataFrame]) \
+        -> Dict[str, pd.DataFrame]:
+    """
+    Internal helper function
+
+    Calculate week to week change of close values in weekly data.
+    Return data in a dict of ticker symbols mapped to pandas DataFrames.
+    DataFrames contain close and change columns where close is week 
+    close and change is percent change from previous week
+
+    weekly_data -- dict of ticker symbols mapped to pandas DataFrames 
+                   which must contain a close column
+    """
+
+    # Get ticker symbols
+    tickers = set(weekly_data.keys())
+
+    weekly_change = dict()
+
+    for ticker in tickers:
+        # Get close column
+        close = weekly_data[ticker].loc[:, 'close']
+        # Calculate weekly change
+        change = close.pct_change()
+
+        # Combine close and change into single data frame
+        df = pd.DataFrame(close)
+        df.loc[:, 'change'] = change
+
+        # Assign dataframe to ticker symbol
+        weekly_change[ticker] = df
+
+    return weekly_change
+
+
+def _sharpe_single(weekly_change: pd.DataFrame, weeks: int = 52) -> float:
+    """
+    Internal helper function
+
+    Calculate sharpe ratio of specified data over specifed number of 
+    weeks. Return numeric value.
+
+    weekly_change --  pandas DataFrame containing column 'change'
+    weeks -- number of weeks to account in sharpe ratio
+    """
+
+    # Get change data of weeks in question
+    total_weeks = weekly_change.iloc[:, 0].count()
+    change = weekly_change.loc[total_weeks-weeks : total_weeks, 'change']
+
+    # Calculate average change
+    average = change.mean(skipna=True)
+
+    # Calculate standard deviation
+    deviation = change.std(skipna=True)
+
+    return average / deviation
+
+
+def sharpe_ratios(weekly_data: Dict[str, pd.DataFrame] = None) \
+        -> Dict[str, float]:
+    """
+    Calculate average sharpe ratio for each ticker.
+    Average sharpe ratio is the averege of sharpe ratios calculated over 
+    52, 26 and 13 weeks.
+    Return dict of ticker symbols mapped to average sharpe values.
+
+    weekly_data -- dict of ticker symbols mapped to pandas DataFrames 
+                   which must contain a close column
+    """
+
+    if weekly_data is None:
+        global historical_data
+        weekly_data = historical_data
+    
+    # Get weekly change
+    change = _weekly_change(weekly_data)
+
+    # Get ticker symbols
+    tickers = set(change.keys())
+
+    sharpes = dict()
+
+    # if tickers are not in portfolio, add them
+    global portfolio
+    missing_tickers = list(tickers - set(portfolio.index))
+    portfolio = portfolio.reindex(portfolio.index.union(missing_tickers))
+
+    for ticker in tickers:
+        data = change[ticker]
+
+        # Calculate sharpe ratios for ticker
+        sharpe_52 = _sharpe_single(data, 52)
+        sharpe_26 = _sharpe_single(data, 26)
+        sharpe_13 = _sharpe_single(data, 13)
+
+        # Assign average of sharpe ratios to ticker
+        average = (sharpe_52 + sharpe_26 + sharpe_13) / 3
+
+        sharpes[ticker] = average
+
+        # Update portfolio
+        portfolio.loc[ticker]['Sharpe (unadjusted)'] = average
+
+    return sharpes
