@@ -1,9 +1,15 @@
+#
+# Bartosz Przybysz
+#
+
 import json
 from ib_insync import *
 import pandas as pd
 from pandas_datareader import data as web
-from typing import Set, Dict
+from typing import Set, Dict, List
+import time
 from datetime import datetime, timedelta
+import pytz
 
 SETTINGS_PATH = 'settings\\settings.json'
 TICKERS_PATH = 'settings\\tickers.xlsx'
@@ -47,7 +53,7 @@ except Exception as e:
     print(e)
 
 
-def get_tickers(path : str = TICKERS_PATH) -> Set[str]:
+def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
     """
     Get ticker symbols from an excel sheet. Return ticker symbols as a set
     of strings
@@ -402,13 +408,13 @@ def actual_portfolio():
 
     # if account not set, pick active account
     global account
-    if account == 'auto':
+    if not account:
         account_value = [v for v in ib.accountValues() 
                         if v.tag == 'NetLiquidation'][0]
         account = account_value.account
     else:
         account_value = [v for v in ib.accountValues(account) 
-                        if v.tag == 'NetLiquidation'][0]
+                        if v.tag is 'NetLiquidation'][0]
     
     global portfolio_value
     portfolio_value = float(account_value.value)
@@ -426,7 +432,7 @@ def actual_portfolio():
             portfolio.loc[ticker] = None
 
         contracts[ticker] = position.contract
-        portfolio.loc[ticker]['Actual (cnt)'] = count
+        portfolio.loc[ticker]['Actual (cnt)'] = round(count, 2)
         portfolio.loc[ticker]['Price'] = price
         portfolio.loc[ticker]['Actual ($)'] = value
         portfolio.loc[ticker]['Actual (%)'] = (value / portfolio_value) * 100
@@ -470,19 +476,24 @@ def target_portfolio():
 
 def generate_sell_orders():
     """
-    Doc here
+    Generate sell orders of type specified by setting
+    'primary_sell_type'. Return list of sell orders and store in global
+    sell_orders
     """
     
     global sell_orders
     
     global settings
     r = settings['round_quantities_to']
+    primary_sell_type = settings['primary_sell_type']
 
     for ticker, row in portfolio.iterrows():
+        
+        # Only generate sell order if difference between actual and 
+        # target portfolio is more than 2%
         if row['Actual (%)'] - row['Target (%)'] > 2:
             contract = Stock(ticker, 'SMART', 'USD')
             ib.qualifyContracts(contract)
-
             
             if row['Target (cnt)'] == 0:
                 number = row['Actual (cnt)']
@@ -490,39 +501,134 @@ def generate_sell_orders():
                 number = row['Actual (cnt)'] - row['Target (cnt)']
                 number = number + (r - (number % r)) # Round up
             
+            # If we want to sell all of the  holdings
             if number > row['Actual (cnt)']:
                 number = row['Actual (cnt)']
 
-            order = Order(action='SELL', orderType='MIDPRICE', totalQuantity=int(number))
+            order = Order(action='SELL', orderType=primary_sell_type, 
+                          totalQuantity=int(number))
 
             sell_orders.append((contract, order))
     
     return sell_orders
 
 
+def _trades_complete(trades: List[Trade]) -> bool:
+    """
+    Internal helper function.
+
+    Check if all trades in list are cokmplete. Return true or false
+
+    trades -- list of Trade objects
+    """
+
+    for trade in trades:
+        if not trade.isDone():
+            return False
+    
+    return True
+
+
 def execute_sell_orders():
     """
-    doc here
+    Execute all sell orders in global sell_orders. Wait for one of the 
+    followint conditions:
+    1) All trades completed successfully
+    2) Time specified by sell_wait_duration settings expires
+    3) Current time exceeds sell_wait_until setting
+
+    If all trades completed successfully return list of Trade objects.
+
+    If either time constraint exceeded, cancel all unfulfilled orders
+    and resubmit them as an order of the type specified by the 
+    auxiliary_sell_type setting. Remove cancelled orders from global
+    sell_orders and replace them with the new orders. Wait until new
+    orders are complete (with no time constraint) and return list of 
+    Trade objects
     """
     global sell_orders
+    
+    global settings
+    auxiliary_sell_type = settings['auxiliary_sell_type']
+    timezone = pytz.timezone(settings['timezone'])
+    sell_wait_duration = settings['sell_wait_duration']
+    sell_wait_until = settings['sell_wait_until']
 
-    trades = list()
+    trades = [ib.placeOrder(*order) for order in sell_orders]
 
-    for order in sell_orders:
-        trades.append(ib.placeOrder(*order))
+    submit_time = datetime.now(timezone)
+    cutoff = submit_time + timedelta(days=1)
+
+    # Modify cutoff time based on settings
+    if sell_wait_duration:
+        hours, minutes = sell_wait_duration.split(':')
+        hours, minutes = int(hours), int(minutes)
+        cutoff = submit_time + timedelta(hours=hours, minutes=minutes)
+    
+    if sell_wait_until:
+        hour, minute = sell_wait_until.split(':')
+        hour, minute = int(hour), int(minute)
+        specified_time = datetime.now(timezone).replace(hour=hour, 
+                                                        minute=minute)
+
+        if specified_time < cutoff:
+            cutoff = specified_time
+
+    status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
+
+    while status == 'WAIT':
+        if _trades_complete(trades):
+            status = 'COMPLETE'
+        
+        if datetime.now(timezone) >= cutoff:
+            status = 'REVISE'
+
+        time.sleep(.5)
+
+    # If cutoff time was reached and orders are still incomplete
+    if status == 'REVISE':
+        incomplete_trades = [t for t in trades if not t.isDone()]
+
+        new_trades = list()
+
+        for trade in incomplete_trades:
+            contract = trade.contract
+            order = Order(action='SELL', orderType=auxiliary_sell_type,
+                          totalQuantity=trade.remaining())
+            
+            # Cancel incomplete oreders and remove them from trades
+            ib.cancelOrder(trade.order)
+            trades.remove(trade)
+
+            # Create new orders of auxiliary sell type
+            new_trade = ib.placeOrder(contract, order)
+            new_trades.append(new_trade)
+            trade.append(new_trade)
+        
+        status = 'WAIT'
+    
+    # Wait for new orders to complete
+    while status == 'WAIT':
+        if _trades_complete(new_trades):
+            status = 'COMPLETE'
+        
+        time.sleep(.5)
     
     return trades
 
 
 def generate_buy_orders():
     """
-    I'll add some documentation later
+    Generate buy orders of type specified by setting
+    'primary_buy_type'. Return list of buy orders and store in global
+    buy_orders
     """
 
     global buy_orders
 
     global settings
     r = settings['round_quantities_to']
+    primary_buy_type = settings['primary_buy_type']
 
     for ticker, row in portfolio.iterrows():
         if row['Target (%)'] - row['Actual (%)'] > 2:
@@ -532,7 +638,8 @@ def generate_buy_orders():
             number = row['Target (cnt)'] - row['Actual (cnt)']
             number = number - (number % r)
 
-            order = Order(action='BUY', orderType='MIDPRICE', totalQuantity=int(number))
+            order = Order(action='BUY', orderType=primary_buy_type, 
+                          totalQuantity=int(number))
 
             buy_orders.append((contract, order))
     
@@ -541,14 +648,83 @@ def generate_buy_orders():
 
 def execute_buy_orders():
     """
-    doc here
+    Execute all sell orders in global buy_orders. Wait for one of the 
+    followint conditions:
+    1) All trades completed successfully
+    2) Time specified by buy_wait_duration settings expires
+    3) Current time exceeds buy_wait_until setting
+
+    If all trades completed successfully return list of Trade objects.
+
+    If either time constraint exceeded, cancel all unfulfilled orders
+    and resubmit them as an order of the type specified by the 
+    auxiliary_buy_type setting. Remove cancelled orders from global
+    buy_orders and replace them with the new orders. Wait until new
+    orders are complete (with no time constraint) and return list of 
+    Trade objects
     """
     global buy_orders
+    
+    global settings
+    auxiliary_buy_type = settings['auxiliary_buy_type']
+    timezone = pytz.timezone(settings['timezone'])
+    buy_wait_duration = settings['buy_wait_duration']
+    buy_wait_until = settings['buy_wait_until']
 
-    trades = list()
+    trades = [ib.placeOrder(*order) for order in sell_orders]
 
-    for order in buy_orders:
-        trades.append(ib.placeOrder(*order))
+    submit_time = datetime.now(timezone)
+    cutoff = submit_time + timedelta(days=1)
+
+    if buy_wait_duration:
+        hours, minutes = buy_wait_duration.split(':')
+        hours, minutes = int(hours), int(minutes)
+        cutoff = submit_time + timedelta(hours=hours, minutes=minutes)
+    
+    if buy_wait_until:
+        hour, minute = buy_wait_until.split(':')
+        hour, minute = int(hour), int(minute)
+        specified_time = datetime.now(timezone).replace(hour=hour, 
+                                                        minute=minute)
+
+        if specified_time < cutoff:
+            cutoff = specified_time
+
+    status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
+
+    while status == 'WAIT':
+        if _trades_complete(trades):
+            status = 'COMPLETE'
+        
+        if datetime.now(timezone) >= cutoff:
+            status = 'REVISE'
+
+        time.sleep(.5)
+
+    if status == 'REVISE':
+        incomplete_trades = [t for t in trades if not t.isDone()]
+
+        new_trades = list()
+
+        for trade in incomplete_trades:
+            contract = trade.contract
+            order = Order(action='BUY', orderType=auxiliary_buy_type,
+                          totalQuantity=trade.remaining())
+            
+            ib.cancelOrder(trade.order)
+            trades.remove(trade)
+
+            new_trade = ib.placeOrder(contract, order)
+            new_trades.append(new_trade)
+            trade.append(new_trade)
+        
+        status = 'WAIT'
+    
+    while status == 'WAIT':
+        if _trades_complete(new_trades):
+            status = 'COMPLETE'
+        
+        time.sleep(.5)
     
     return trades
 
