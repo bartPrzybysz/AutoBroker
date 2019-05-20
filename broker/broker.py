@@ -28,7 +28,6 @@ class JSONEncoder(json.JSONEncoder):
 tickers = set()
 historical_data = dict()
 portfolio_value = float()
-account = str()
 portfolio = pd.DataFrame(columns=[
     'Price', 'Sharpe (unadjusted)', 'Sharpe (adjusted)',
     'Actual (cnt)', 'Actual ($)', 'Actual (%)',
@@ -407,7 +406,9 @@ def actual_portfolio():
     """
 
     # if account not set, pick active account
-    global account
+    global settings
+    account = settings['TWS_account']
+
     if not account:
         account_value = [v for v in ib.accountValues() 
                         if v.tag == 'NetLiquidation'][0]
@@ -603,7 +604,7 @@ def execute_sell_orders():
             # Create new orders of auxiliary sell type
             new_trade = ib.placeOrder(contract, order)
             new_trades.append(new_trade)
-            trade.append(new_trade)
+            trades.append(new_trade)
         
         status = 'WAIT'
     
@@ -671,7 +672,7 @@ def execute_buy_orders():
     buy_wait_duration = settings['buy_wait_duration']
     buy_wait_until = settings['buy_wait_until']
 
-    trades = [ib.placeOrder(*order) for order in sell_orders]
+    trades = [ib.placeOrder(*order) for order in buy_orders]
 
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
@@ -716,7 +717,7 @@ def execute_buy_orders():
 
             new_trade = ib.placeOrder(contract, order)
             new_trades.append(new_trade)
-            trade.append(new_trade)
+            trades.append(new_trade)
         
         status = 'WAIT'
     
