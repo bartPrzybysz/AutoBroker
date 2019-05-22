@@ -37,6 +37,7 @@ contracts = dict()
 sell_orders = list()
 buy_orders = list()
 
+print('\nLoading settings')
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
     account = settings['TWS_account']
@@ -44,6 +45,7 @@ except Exception as e:
     print('Loading settigs failed')
     print(e)
 
+print('\nConnectig to TWS')
 try:
     ib = IB()
     ib.connect(settings['TWS_ip'], settings['TWS_port'], settings['TWS_id'])
@@ -435,7 +437,7 @@ def actual_portfolio():
         contracts[ticker] = position.contract
         portfolio.loc[ticker]['Actual (cnt)'] = round(count, 2)
         portfolio.loc[ticker]['Price'] = price
-        portfolio.loc[ticker]['Actual ($)'] = value
+        portfolio.loc[ticker]['Actual ($)'] = round(value, 2)
         portfolio.loc[ticker]['Actual (%)'] = (value / portfolio_value) * 100
     
     # Fill blank values with zeros
@@ -464,9 +466,18 @@ def target_portfolio():
 
     global portfolio_value
 
+    # If target is over 25%, store here by how much
+    target_excess = 0
+
     # Populate portfolio dataframe
     for ticker, row in portfolio.iterrows():
         target_percentage = row['Sharpe (adjusted)'] / sum_sharpe
+        target_percentage = target_percentage + target_excess
+
+        if target_percentage > 25:
+            target_excess = target_percentage - 25
+            target_percentage = 25
+
         target_value = target_percentage * portfolio_value
         target_cnt = target_value / row['Price']
 
@@ -574,15 +585,19 @@ def execute_sell_orders():
 
         if specified_time < cutoff:
             cutoff = specified_time
+    
+    ib.openTrades()
 
     status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
         if _trades_complete(trades):
             status = 'COMPLETE'
+            break
         
         if datetime.now(timezone) >= cutoff:
             status = 'REVISE'
+            break
 
         time.sleep(.5)
 
@@ -612,6 +627,7 @@ def execute_sell_orders():
     while status == 'WAIT':
         if _trades_complete(new_trades):
             status = 'COMPLETE'
+            break
         
         time.sleep(.5)
     
@@ -637,7 +653,7 @@ def generate_buy_orders():
             ib.qualifyContracts(contract)
 
             number = row['Target (cnt)'] - row['Actual (cnt)']
-            number = number - (number % r)
+            number = number - (number % r) # Round down
 
             order = Order(action='BUY', orderType=primary_buy_type, 
                           totalQuantity=int(number))
@@ -650,9 +666,9 @@ def generate_buy_orders():
 def execute_buy_orders():
     """
     Execute all sell orders in global buy_orders. Wait for one of the 
-    followint conditions:
+    following conditions:
     1) All trades completed successfully
-    2) Time specified by buy_wait_duration settings expires
+    2) Time specified by buy_wait_duration setting expires
     3) Current time exceeds buy_wait_until setting
 
     If all trades completed successfully return list of Trade objects.
@@ -691,14 +707,18 @@ def execute_buy_orders():
         if specified_time < cutoff:
             cutoff = specified_time
 
+    ib.openTrades()
+
     status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
         if _trades_complete(trades):
             status = 'COMPLETE'
+            break
         
         if datetime.now(timezone) >= cutoff:
             status = 'REVISE'
+            break
 
         time.sleep(.5)
 
@@ -720,12 +740,7 @@ def execute_buy_orders():
             trades.append(new_trade)
         
         status = 'WAIT'
-    
-    while status == 'WAIT':
-        if _trades_complete(new_trades):
-            status = 'COMPLETE'
         
         time.sleep(.5)
     
     return trades
-
