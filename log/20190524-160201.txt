@@ -1,0 +1,4 @@
+2019-05-24 16:02:01
+
+settings loaded
+ERROR: connecting to TWS failed
