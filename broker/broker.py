@@ -13,7 +13,8 @@ import pytz
 
 SETTINGS_PATH = 'settings\\settings.json'
 TICKERS_PATH = 'settings\\tickers.xlsx'
-CACHE_DIR = 'cache'
+LOG_DIR = 'log\\'
+CACHE_DIR = 'cache\\'
 
 
 # extend json.JSONEncoder to handle pandas dataframes
@@ -37,20 +38,30 @@ contracts = dict()
 sell_orders = list()
 buy_orders = list()
 
+timestr = time.strftime("%Y%m%d-%H%M%S")
+log_file = open(LOG_DIR + timestr + '.txt', 'a+')
+log_file.write(time.strftime("%Y-%m-%d %H:%M:%S\n\n"))
+
 print('\nLoading settings')
 try:
     settings = json.load(open(SETTINGS_PATH, 'r'))
     account = settings['TWS_account']
+    log_file.write('settings loaded\n')
 except Exception as e:
-    print('Loading settigs failed')
+    print('Loading settigs failed\n')
+    log_file.write('ERROR: loading settings failed\n')
+    log_file.close()
     print(e)
 
 print('\nConnectig to TWS')
 try:
     ib = IB()
     ib.connect(settings['TWS_ip'], settings['TWS_port'], settings['TWS_id'])
+    log_file.write('connected to TWS\n')
 except Exception as e:
-    print('Connecting to TWS failed')
+    print('Connecting to TWS failed\n')
+    log_file.write('ERROR: connecting to TWS failed\n')
+    log_file.close()
     print(e)
 
 
@@ -72,6 +83,9 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
     global portfolio
     missing_tickers = list(tickers - set(portfolio.index))
     portfolio = portfolio.reindex(portfolio.index.union(missing_tickers))
+
+    global log_file
+    log_file.write('ticker list: ' + str(tickers) + '\n')
 
     return tickers
 
@@ -105,7 +119,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
         week_dates.append(week)
 
     # Read cache file
-    with open(CACHE_DIR + '/historical_data.json', 'r') as historical_cache:
+    with open(CACHE_DIR + 'historical_data.json', 'r') as historical_cache:
         cached_data = json.load(historical_cache)
 
         for ticker, data in cached_data.items():
@@ -240,8 +254,11 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
                 historical_data[ticker].loc[i + 1] = week_from_cache.iloc[0]
 
     # Save historical data to cache
-    with open(CACHE_DIR + '/historical_data.json', 'w') as historical_cache:
+    with open(CACHE_DIR + 'historical_data.json', 'w') as historical_cache:
         json.dump(historical_data, historical_cache, cls=JSONEncoder)
+    
+    global log_file
+    log_file.write('historical data pulled\n')
 
     return historical_data
 
@@ -566,10 +583,18 @@ def execute_sell_orders():
     sell_wait_duration = settings['sell_wait_duration']
     sell_wait_until = settings['sell_wait_until']
 
+    global log_file 
+    for order in sell_orders:
+        ticker = order[0].symbol
+        amount = order[1].totalQuantity
+        log_file.write(f'selling {amount} shares of {ticker}\n')
+
     trades = [ib.placeOrder(*order) for order in sell_orders]
 
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
+
+    log_file.write('Waiting until ' + str(cutoff) + '\n')
 
     # Modify cutoff time based on settings
     if sell_wait_duration:
@@ -611,6 +636,8 @@ def execute_sell_orders():
             contract = trade.contract
             order = Order(action='SELL', orderType=auxiliary_sell_type,
                           totalQuantity=trade.remaining())
+            
+            log_file.write(f'resubmitting sell order for {contract.symbol}\n')
             
             # Cancel incomplete oreders and remove them from trades
             ib.cancelOrder(trade.order)
@@ -688,10 +715,18 @@ def execute_buy_orders():
     buy_wait_duration = settings['buy_wait_duration']
     buy_wait_until = settings['buy_wait_until']
 
+    global log_file
+    for order in buy_orders:
+        ticker = order[0].symbol
+        amount = order[1].totalQuantity
+        log_file.write(f'buying {amount} shares of {ticker}\n')
+
     trades = [ib.placeOrder(*order) for order in buy_orders]
 
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
+
+    log_file.write('Waiting until ' + str(cutoff) + '\n')
 
     if buy_wait_duration:
         hours, minutes = buy_wait_duration.split(':')
@@ -735,12 +770,10 @@ def execute_buy_orders():
             ib.cancelOrder(trade.order)
             trades.remove(trade)
 
+            log_file.write(f'resubmitting sell order for {contract.symbol}\n')
+
             new_trade = ib.placeOrder(contract, order)
             new_trades.append(new_trade)
             trades.append(new_trade)
-        
-        status = 'WAIT'
-        
-        time.sleep(.5)
     
     return trades
