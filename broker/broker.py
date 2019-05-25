@@ -611,11 +611,11 @@ def execute_sell_orders():
         if specified_time < cutoff:
             cutoff = specified_time
     
-    ib.openTrades()
-
     status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
+        ib.reqAllOpenOrders()
+
         if _trades_complete(trades):
             status = 'COMPLETE'
             break
@@ -652,6 +652,8 @@ def execute_sell_orders():
     
     # Wait for new orders to complete
     while status == 'WAIT':
+        ib.reqAllOpenOrders()
+
         if _trades_complete(new_trades):
             status = 'COMPLETE'
             break
@@ -747,6 +749,8 @@ def execute_buy_orders():
     status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
+        ib.reqAllOpenOrders()
+
         if _trades_complete(trades):
             status = 'COMPLETE'
             break
