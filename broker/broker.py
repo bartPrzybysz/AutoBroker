@@ -72,7 +72,7 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
 
     path -- path to excel sheet
     """
-    sheet_data = pd.read_excel(path, skipna=True)
+    sheet_data = pd.read_excel(path, skipna=True, header=None)
 
     ticker_series = sheet_data.iloc[:, 0].dropna()
 
