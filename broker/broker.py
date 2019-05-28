@@ -322,30 +322,6 @@ def _weekly_change(weekly_data: Dict[str, pd.DataFrame]) \
     return weekly_change
 
 
-def _sharpe_single(weekly_change: pd.DataFrame, weeks: int = 52) -> float:
-    """
-    Internal helper function
-
-    Calculate sharpe ratio of specified data over specifed number of 
-    weeks. Return numeric value.
-
-    weekly_change --  pandas DataFrame containing column 'change'
-    weeks -- number of weeks to account in sharpe ratio
-    """
-
-    # Get change data of weeks in question
-    total_weeks = weekly_change.iloc[:, 0].count()
-    change = weekly_change.loc[total_weeks-weeks : total_weeks, 'change']
-
-    # Calculate average change
-    average = change.mean(skipna=True)
-
-    # Calculate standard deviation
-    deviation = change.std(skipna=True)
-
-    return average / deviation
-
-
 def sharpe_ratios(weekly_data: Dict[str, pd.DataFrame] = None) \
         -> Dict[str, float]:
     """
