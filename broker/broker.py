@@ -92,10 +92,10 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
 
 def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
     """ 
-    Pull weekly historical data for all ticker symbols going back 52 
+    Pull weekly historical data for all ticker symbols going back 53 
     weeks from current date.
     Return data in a dict of ticker symbols mapped to pandas DataFrame 
-    objects. DataFrames are indexed 1 to 52 with 52 being the most 
+    objects. DataFrames are indexed 0 to 52 with 52 being the most 
     recent week, and contain the following columns: open, high, low, 
     close and volume.
 
@@ -105,15 +105,15 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
         global tickers
         symbols = tickers
     
-    # Set start_date to Monday of 52 weeks ago, end_date to last friday
+    # Set start_date to Monday of 53 weeks ago, end_date to last friday
     cur_weekday = datetime.now().weekday()
-    start_date = datetime.now() - timedelta(weeks=52, days=cur_weekday)
+    start_date = datetime.now() - timedelta(weeks=53, days=cur_weekday)
     end_date = datetime.now() - timedelta(days=3+cur_weekday)
 
-    # Dates of monday-friday of each week going back 52 weeks
+    # Dates of monday-friday of each week going back 53 weeks
     week_dates = list()
-    for i in range(52):
-        monday = datetime.now() - timedelta(weeks=52-i, days=cur_weekday)
+    for i in range(53):
+        monday = datetime.now() - timedelta(weeks=53-i, days=cur_weekday)
         week = tuple((monday + timedelta(days=j)).strftime('%Y-%m-%d')
                      for j in range(5))
         week_dates.append(week)
@@ -156,7 +156,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
             for ticker in missing_tickers:
                 # Place weekly average for each column indexed by week 
                 # number
-                historical_data[ticker].loc[i + 1] = [
+                historical_data[ticker].loc[i] = [
                     # Week date is first day of week
                     week[0],
 
@@ -193,7 +193,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
             for ticker in missing_tickers:
                 # Place weekly average for each column indexed by week 
                 # number
-                historical_data[ticker].loc[i + 1] = [
+                historical_data[ticker].loc[i] = [
                     # Week date is first day of week
                     week[0],
 
@@ -230,7 +230,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
                     if day in data_pull.index
                 ]
 
-                historical_data[ticker].loc[i + 1] = [
+                historical_data[ticker].loc[i] = [
                     # Week date is first day of week
                     week[0],
 
@@ -251,7 +251,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
                 ]
             else:
                 # Use cached data
-                historical_data[ticker].loc[i + 1] = week_from_cache.iloc[0]
+                historical_data[ticker].loc[i] = week_from_cache.iloc[0]
 
     # Save historical data to cache
     with open(CACHE_DIR + 'historical_data.json', 'w') as historical_cache:
@@ -275,7 +275,7 @@ def _sharpe_single(weekly_change: pd.DataFrame, weeks: int = 52) -> float:
     """
 
     # Get change data of weeks in question
-    total_weeks = weekly_change.iloc[:, 0].count()
+    total_weeks = weekly_change.iloc[:, 1].count()
     change = weekly_change.loc[total_weeks-weeks : total_weeks, 'change']
 
     # Calculate average change
@@ -388,7 +388,7 @@ def get_prices(symbols: Set[str] = None) -> Dict[str, float]:
     # Get the latest sell price for each ticker
     prices_pull = web.DataReader(list(symbols), 'iex-last')
     
-    for index, row in prices_pull.iterrows():
+    for _, row in prices_pull.iterrows():
         portfolio.loc[row['symbol']]['Price'] = row['price']
         prices[row['symbol']] = row['price']
     
