@@ -1,0 +1,4 @@
+*.pyc
+build/*
+launch.json
+*.spec

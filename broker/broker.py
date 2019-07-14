@@ -39,7 +39,7 @@ sell_orders = list()
 buy_orders = list()
 
 timestr = time.strftime("%Y%m%d-%H%M%S")
-log_file = open(LOG_DIR + timestr + '.txt', 'a+')
+log_file = open(LOG_DIR + timestr + '.log', 'a+')
 log_file.write(time.strftime("%Y-%m-%d %H:%M:%S\n\n"))
 
 print('\nLoading settings')
@@ -178,7 +178,7 @@ def get_historical_data(symbols: Set[str] = None) -> Dict[str, pd.DataFrame]:
 
     elif len(missing_tickers) > 1:
         data_pull = web.DataReader(
-            list(missing_tickers), 'iex', start_date, end_date)
+            list(missing_tickers), 'yahoo', start_date, end_date)
     
         for i, week in enumerate(week_dates):
             # Get historical data rows for each day of the week 
@@ -757,3 +757,5 @@ def execute_buy_orders():
             trades.append(new_trade)
     
     return trades
+
+print('done')
