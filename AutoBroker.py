@@ -53,7 +53,7 @@ def load_settings():
 
 
 def connect():
-    """ Connect to TWS """
+    """ Connect to TWS with provided credentials """
 
     logging.info('Connecting to TWS')
 
@@ -68,10 +68,11 @@ def connect():
 def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
     """
     Get ticker symbols from an excel sheet. Return ticker symbols as a set
-    of strings
+    of strings. Also stores Contract objects in global contracts
 
     path -- path to excel sheet
     """
+
     sheet_data = pd.read_excel(path, skipna=True, header=None)
 
     ticker_series = sheet_data.iloc[:, 0].dropna()
@@ -96,6 +97,18 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
 
 
 def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
+    """
+    Get weekly historical data for all contracts going back 53 weeks.
+
+    Sore result in DataFrame which is returned and stored in global 
+    historical_data. The index of this dataframe is a string 
+    representation of a datetime.date object, the column names are the
+    ticker symbols and the data is the close value of the ticker as a
+    float.
+
+    cont -- dict of ticker symbols mapped to their contract objects
+    """
+
     if cont is None:
         global contracts
     else:
@@ -172,6 +185,14 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
 
 
 def sharpe_single(ticker_change: pd.Series, weeks: int = 52) -> float:
+    """
+    Get the sharpe ratio of a single ticker going over a certain number
+    of weeks
+
+    ticker_change -- a Series object containting change percentages
+    weeks -- number of weeks to take into account, most recent weeks
+             will be uesed
+    """
     
     total_weeks = len(ticker_change.index)
     change = ticker_change[total_weeks-weeks : total_weeks]
@@ -186,9 +207,13 @@ def sharpe_single(ticker_change: pd.Series, weeks: int = 52) -> float:
 def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
     """
     Calculate average sharpe ratio for each ticker.
+
     Average sharpe ratio is the averege of sharpe ratios calculated over 
-    52, 26 and 13 weeks.
+    52, 26 and 13 weeks. Results will also be stored in global portfolio.
     Return dict of ticker symbols mapped to average sharpe values.
+
+    weekly_data -- A pandas dataframe following the same format as
+                   global historical data
     """
 
     if weekly_data is None:
@@ -229,7 +254,8 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
 def get_prices(cont: Dict[str, Contract] = None) -> Dict[str, float]:
     """
     Get current price of each ticker. Return set of ticker symbols 
-    mapped to a float value (USD).
+    mapped to a float value (USD). Results will also be stored in global
+    portfolio.
 
     symbols -- set of ticker symbols
     """
@@ -632,6 +658,7 @@ def execute_buy_orders():
 
 def run():
     """ Perform the whole process """
+    
     load_settings()
     connect()
     get_tickers()
