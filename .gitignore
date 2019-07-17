@@ -2,3 +2,6 @@
 build/*
 launch.json
 *.spec
+new.*
+*.log
+.vscode
