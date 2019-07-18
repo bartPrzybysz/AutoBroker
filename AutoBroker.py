@@ -269,14 +269,14 @@ def get_prices(cont: Dict[str, Contract] = None) -> Dict[str, float]:
     global portfolio
     prices = dict()
 
+    ib.reqTickers(*list(contracts.values()))
+
     for symbol, contract in contracts.items():
-        ticker = ib.reqMktData(contract=contract, snapshot=True)
+        ticker = ib.ticker(contract)
 
-        portfolio.loc[symbol, 'Price'] = ticker.midpoint()
-        prices[symbol] = ticker.midpoint()
+        portfolio.loc[symbol, 'Price'] = ticker.close
+        prices[symbol] = ticker.close
 
-        ib.cancelMktData(contract)
-    
     return prices
 
 
@@ -361,7 +361,11 @@ def target_portfolio():
             target_percentage = 25
 
         target_value = target_percentage * portfolio_value
-        target_cnt = target_value / row['Price']
+        if row['Price']:
+            target_cnt = target_value / row['Price']
+        else:
+            logging.error(f'{ticker} excluded from target portfolio')
+            target_cnt = None
 
         portfolio.loc[ticker, 'Target (%)'] = target_percentage * 100
         portfolio.loc[ticker, 'Target ($)'] = target_value
@@ -378,7 +382,7 @@ def generate_sell_orders():
     sell_orders
     """
 
-    logging.info('Generating sell ofders')
+    logging.info('Generating sell orders')
     
     global sell_orders
     
@@ -601,7 +605,7 @@ def execute_buy_orders():
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
 
-    logging.info('Waiting until ' + str(cutoff) + '\n')
+    logging.info('Waiting until ' + str(cutoff))
 
     if buy_wait_duration:
         hours, minutes = buy_wait_duration.split(':')
