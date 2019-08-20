@@ -139,18 +139,17 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
     for ticker in contracts:
         # If ticker not in cache, we need all the data
         if ticker not in historical_data:
-            needed_data[ticker] = '1 Y'
+            needed_data[ticker] = '260 D'
             continue
         
         last_date = historical_data[ticker].dropna().index[-1]
         missing_days = end_date - last_date
-        missing_weeks = int(missing_days.days / 7)
 
-        if missing_weeks > 0:
-            needed_data[ticker] = f'{missing_weeks} W'
+        if missing_days.days > 0:
+            needed_data[ticker] = f'{missing_days.days} D'
     
-    incomplete_count = len([v for v in needed_data.values() if v != '1 Y'])
-    missing_count = len([v for v in needed_data.values() if v == '1 Y' ])
+    incomplete_count = len([v for v in needed_data.values() if v != '260 D'])
+    missing_count = len([v for v in needed_data.values() if v == '260 D' ])
     logging.info(f'Cache data incomplete for {incomplete_count} tickers')
     logging.info(f'Cache data missing for {missing_count} tickers')
     
@@ -159,23 +158,42 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
 
     if needed_data:
         logging.info('Pulling historical market data from IB')
+    
+    data_pull = pd.DataFrame()
 
     # Get missing data from ib api
     for ticker, duration in needed_data.items():
         bars = ib.reqHistoricalData(
             contract=contracts[ticker],
-            endDateTime=end_date,
+            endDateTime='',
             durationStr=duration,
-            barSizeSetting='1 week',
-            whatToShow='TRADES',
+            barSizeSetting='1 day',
+            whatToShow='ADJUSTED_LAST',
             useRTH=True
         )
 
         for bar in bars:
-            historical_data.loc[bar.date, ticker] = bar.close
+            data_pull.loc[bar.date, ticker] = bar.close
+    
+    # Add temporary date column to data pull
+    data_pull['date'] = pd.to_datetime(data_pull.index)
+    
+    # Iterate over each week in data pull
+    for week_of, week in data_pull.groupby(pd.Grouper(key='date', freq='W')):
+        last_day = week.index[-1]
+        
+        if start_date <= last_day and last_day <= end_date:
+            historical_data = historical_data.append(week.loc[last_day])
+    
+    # Remove date column
+    if 'date' in historical_data.columns:
+        historical_data.drop(columns=['date'], inplace=True)
     
     # Remove unneeded tickers from historical data
     historical_data = historical_data[list(contracts.keys())]
+
+    # Remove possibility of last day of cached data being listed twice
+    historical_data = historical_data.loc[historical_data.index.drop_duplicates(keep='last')]
     
     logging.info('Updating cache')
     with open(CACHE_DIR + 'historical_data.json', 'w') as file:
@@ -470,8 +488,6 @@ def execute_sell_orders():
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
 
-    logging.info('Waiting until ' + str(cutoff))
-
     # Modify cutoff time based on settings
     if sell_wait_duration:
         hours, minutes = sell_wait_duration.split(':')
@@ -486,6 +502,8 @@ def execute_sell_orders():
 
         if specified_time < cutoff:
             cutoff = specified_time
+    
+    logging.info('Waiting until ' + str(cutoff))
     
     status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
@@ -605,8 +623,6 @@ def execute_buy_orders():
     submit_time = datetime.now(timezone)
     cutoff = submit_time + timedelta(days=1)
 
-    logging.info('Waiting until ' + str(cutoff))
-
     if buy_wait_duration:
         hours, minutes = buy_wait_duration.split(':')
         hours, minutes = int(hours), int(minutes)
@@ -620,6 +636,8 @@ def execute_buy_orders():
 
         if specified_time < cutoff:
             cutoff = specified_time
+    
+    logging.info('Waiting until ' + str(cutoff))
 
     ib.openTrades()
 
