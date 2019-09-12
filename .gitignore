@@ -5,3 +5,4 @@ launch.json
 new.*
 *.log
 .vscode
+Pipfile.lock

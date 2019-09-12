@@ -1,0 +1,6 @@
+2019-09-02 16:24:21,594|INFO|Loading settings
+2019-09-02 16:24:21,599|INFO|Connecting to TWS
+2019-09-02 16:24:21,602|INFO|Connecting to localhost:7497 with clientId 0...
+2019-09-02 16:24:23,604|INFO|Disconnecting
+2019-09-02 16:24:23,606|ERROR|API connection failed: CancelledError()
+2019-09-02 16:24:23,613|ERROR|Connecting to tws failed 
