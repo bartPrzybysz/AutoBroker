@@ -5,6 +5,7 @@ verify_ssl = true
 
 [dev-packages]
 pep8 = "*"
+autopep8 = "*"
 
 [packages]
 ib-insync = "*"

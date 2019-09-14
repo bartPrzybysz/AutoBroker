@@ -1,7 +1,7 @@
 import json
 from ib_insync import *
 import pandas as pd
-from typing import Set, Dict, List 
+from typing import Set, Dict, List
 import time
 from datetime import datetime, timedelta
 import pytz
@@ -10,7 +10,6 @@ import logging
 SETTINGS_PATH = 'settings\\settings.json'
 TICKERS_PATH = 'settings\\tickers.xlsx'
 LOG_DIR = 'log\\'
-CACHE_DIR = 'cache\\'
 
 ib = IB()
 settings = dict()
@@ -29,8 +28,8 @@ buy_orders = list()
 timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
 log_path = LOG_DIR + timestr + '.log'
 logging.basicConfig(
-    filename=log_path, 
-    filemode='a+', 
+    filename=log_path,
+    filemode='a+',
     level=logging.INFO,
     format='%(asctime)s|%(levelname)s|%(message)s'
 )
@@ -47,7 +46,7 @@ def load_settings():
     try:
         with open(SETTINGS_PATH, 'r') as file:
             settings = json.load(file)
-        
+
     except Exception as e:
         logging.error('Loading settings failed ' + str(e))
 
@@ -60,7 +59,8 @@ def connect():
     try:
         global ib
         ib = IB()
-        ib.connect(settings['TWS_ip'], settings['TWS_port'], settings['TWS_id'])
+        ib.connect(settings['TWS_ip'],
+                   settings['TWS_port'], settings['TWS_id'])
     except Exception as e:
         logging.error('Connecting to tws failed ' + str(e))
 
@@ -96,12 +96,12 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
     return tickers
 
 
-def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
+def get_historical_data(cont: Dict[str, Contract]=None) -> pd.DataFrame:
     """
     Get weekly historical data for all contracts going back 53 weeks.
 
-    Sore result in DataFrame which is returned and stored in global 
-    historical_data. The index of this dataframe is a string 
+    Sore result in DataFrame which is returned and stored in global
+    historical_data. The index of this dataframe is a string
     representation of a datetime.date object, the column names are the
     ticker symbols and the data is the close value of the ticker as a
     float.
@@ -113,60 +113,21 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
         global contracts
     else:
         contracts = cont
-    
-    # Set start_date to Monday of 53 weeks ago, end_date to last friday
-    today = datetime.now().date()
-    cur_weekday = today.weekday()
-    start_date = today - timedelta(weeks=52, days=3+cur_weekday)
-    end_date = today - timedelta(days=3 + cur_weekday)
-
-    logging.info(f'Historical data timespan needed: {start_date} - {end_date}')
 
     global historical_data
 
-    # Get cached data
-    logging.info('Loading cached historical data')
-    with open(CACHE_DIR + 'historical_data.json', 'r') as cache_file:
-        historical_data = pd.read_json(cache_file)
+    logging.info('getting historical data')
 
-    # Convert index from timestamp to datetime.date
-    historical_data.index = historical_data.index.map(
-        lambda timestamp: datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S').date()
-    )
-    
-    # Specify what data is missing from cache
-    needed_data = dict()
-    for ticker in contracts:
-        # If ticker not in cache, we need all the data
-        if ticker not in historical_data:
-            needed_data[ticker] = '260 D'
-            continue
-        
-        last_date = historical_data[ticker].dropna().index[-1]
-        missing_days = end_date - last_date
+    start = time.time()
 
-        if missing_days.days > 0:
-            needed_data[ticker] = f'{missing_days.days} D'
-    
-    incomplete_count = len([v for v in needed_data.values() if v != '260 D'])
-    missing_count = len([v for v in needed_data.values() if v == '260 D' ])
-    logging.info(f'Cache data incomplete for {incomplete_count} tickers')
-    logging.info(f'Cache data missing for {missing_count} tickers')
-    
-    # Delete data that is more than 53 weeks old
-    historical_data = historical_data[historical_data.index >= start_date]
-
-    if needed_data:
-        logging.info('Pulling historical market data from IB')
-    
     data_pull = pd.DataFrame()
 
-    # Get missing data from ib api
-    for ticker, duration in needed_data.items():
+    # Get historical data from ib api
+    for ticker in contracts.keys():
         bars = ib.reqHistoricalData(
             contract=contracts[ticker],
             endDateTime='',
-            durationStr=duration,
+            durationStr='260 D',
             barSizeSetting='1 day',
             whatToShow='ADJUSTED_LAST',
             useRTH=True
@@ -174,31 +135,16 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
 
         for bar in bars:
             data_pull.loc[bar.date, ticker] = bar.close
-    
-    # Add temporary date column to data pull
-    data_pull['date'] = pd.to_datetime(data_pull.index)
-    
-    # Iterate over each week in data pull
-    for week_of, week in data_pull.groupby(pd.Grouper(key='date', freq='W')):
-        last_day = week.index[-1]
-        
-        if start_date <= last_day and last_day <= end_date:
-            historical_data = historical_data.append(week.loc[last_day])
-    
-    # Remove date column
-    if 'date' in historical_data.columns:
-        historical_data.drop(columns=['date'], inplace=True)
-    
-    # Remove unneeded tickers from historical data
-    historical_data = historical_data[list(contracts.keys())]
 
-    # Remove possibility of last day of cached data being listed twice
-    historical_data = historical_data.loc[historical_data.index.drop_duplicates(keep='last')]
-    
-    logging.info('Updating cache')
-    with open(CACHE_DIR + 'historical_data.json', 'w') as file:
-        historical_data.to_json(file)
-    
+    end = time.time()
+    logging.info(f'Data pull took {end-start} seconds')
+
+    data_pull = data_pull.iloc[::-1]  # reverse order
+    data_pull = data_pull.iloc[::5]  # select every 5th row
+    data_pull = data_pull.iloc[::-1]  # reverse order
+
+    historical_data = data_pull
+
     return historical_data
 
 
@@ -211,9 +157,9 @@ def sharpe_single(ticker_change: pd.Series, weeks: int = 52) -> float:
     weeks -- number of weeks to take into account, most recent weeks
              will be uesed
     """
-    
+
     total_weeks = len(ticker_change.index)
-    change = ticker_change[total_weeks-weeks : total_weeks]
+    change = ticker_change[total_weeks-weeks: total_weeks]
 
     average = change.mean(skipna=True)
 
@@ -226,7 +172,7 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
     """
     Calculate average sharpe ratio for each ticker.
 
-    Average sharpe ratio is the averege of sharpe ratios calculated over 
+    Average sharpe ratio is the averege of sharpe ratios calculated over
     52, 26 and 13 weeks. Results will also be stored in global portfolio.
     Return dict of ticker symbols mapped to average sharpe values.
 
@@ -237,7 +183,7 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
     if weekly_data is None:
         global historical_data
         weekly_data = historical_data
-    
+
     weekly_change = historical_data.pct_change()
 
     tickers = set(weekly_change.columns)
@@ -269,9 +215,9 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
     return sharpes
 
 
-def get_prices(cont: Dict[str, Contract] = None) -> Dict[str, float]:
+def get_prices(cont: Dict[str, Contract]=None) -> Dict[str, float]:
     """
-    Get current price of each ticker. Return set of ticker symbols 
+    Get current price of each ticker. Return set of ticker symbols
     mapped to a float value (USD). Results will also be stored in global
     portfolio.
 
@@ -281,9 +227,9 @@ def get_prices(cont: Dict[str, Contract] = None) -> Dict[str, float]:
         global contracts
     else:
         contracts = cont
-    
+
     logging.info('Requesting current ticker prices')
-    
+
     global portfolio
     prices = dict()
 
@@ -310,13 +256,13 @@ def actual_portfolio():
     account = settings['TWS_account']
 
     if not account:
-        account_value = [v for v in ib.accountValues() 
-                        if v.tag == 'NetLiquidation'][0]
+        account_value = [v for v in ib.accountValues()
+                         if v.tag == 'NetLiquidation'][0]
         account = account_value.account
     else:
-        account_value = [v for v in ib.accountValues(account) 
-                        if v.tag is 'NetLiquidation'][0]
-    
+        account_value = [v for v in ib.accountValues(account)
+                         if v.tag is 'NetLiquidation'][0]
+
     global portfolio_value
     portfolio_value = float(account_value.value)
 
@@ -337,7 +283,7 @@ def actual_portfolio():
         portfolio.loc[ticker]['Price'] = price
         portfolio.loc[ticker]['Actual ($)'] = round(value, 2)
         portfolio.loc[ticker]['Actual (%)'] = (value / portfolio_value) * 100
-    
+
     # Fill blank values with zeros
     portfolio['Actual (cnt)'].fillna(0, inplace=True)
     portfolio['Actual ($)'].fillna(0, inplace=True)
@@ -353,7 +299,7 @@ def target_portfolio():
 
     # Sort portfolio by sharpe ratio
     global portfolio
-    portfolio = portfolio.sort_values(by=['Sharpe (unadjusted)'], 
+    portfolio = portfolio.sort_values(by=['Sharpe (unadjusted)'],
                                       ascending=False)
 
     # Adjust sharpe ratio to zero for tickers that will not be used
@@ -361,8 +307,8 @@ def target_portfolio():
     global settings
     max_size = settings['max_portfolio_size']
     portfolio.iloc[max_size:, 2] = 0
-    
-    sum_sharpe = portfolio.loc[:,'Sharpe (adjusted)'].sum()
+
+    sum_sharpe = portfolio.loc[:, 'Sharpe (adjusted)'].sum()
 
     global portfolio_value
 
@@ -388,7 +334,7 @@ def target_portfolio():
         portfolio.loc[ticker, 'Target (%)'] = target_percentage * 100
         portfolio.loc[ticker, 'Target ($)'] = target_value
         portfolio.loc[ticker, 'Target (cnt)'] = target_cnt
-    
+
     logging.info(f'Total portfolio value: {portfolio_value}')
     logging.info('Portfolio:\n' + str(portfolio))
 
@@ -401,36 +347,36 @@ def generate_sell_orders():
     """
 
     logging.info('Generating sell orders')
-    
+
     global sell_orders
-    
+
     global settings
     r = settings['round_quantities_to']
     primary_sell_type = settings['primary_sell_type']
 
     for ticker, row in portfolio.iterrows():
-        
-        # Only generate sell order if difference between actual and 
+
+        # Only generate sell order if difference between actual and
         # target portfolio is more than 2%
         if row['Actual (%)'] - row['Target (%)'] > 2:
             contract = Stock(ticker, 'SMART', 'USD')
             ib.qualifyContracts(contract)
-            
+
             if row['Target (cnt)'] == 0:
                 number = row['Actual (cnt)']
             else:
                 number = row['Actual (cnt)'] - row['Target (cnt)']
-                number = number + (r - (number % r)) # Round up
-            
+                number = number + (r - (number % r))  # Round up
+
             # If we want to sell all of the  holdings
             if number > row['Actual (cnt)']:
                 number = row['Actual (cnt)']
 
-            order = Order(action='SELL', orderType=primary_sell_type, 
+            order = Order(action='SELL', orderType=primary_sell_type,
                           totalQuantity=int(number))
 
             sell_orders.append((contract, order))
-    
+
     return sell_orders
 
 
@@ -446,13 +392,13 @@ def trades_complete(trades: List[Trade]) -> bool:
     for trade in trades:
         if not trade.isDone():
             return False
-    
+
     return True
 
 
 def execute_sell_orders():
     """
-    Execute all sell orders in global sell_orders. Wait for one of the 
+    Execute all sell orders in global sell_orders. Wait for one of the
     followint conditions:
     1) All trades completed successfully
     2) Time specified by sell_wait_duration settings expires
@@ -461,17 +407,17 @@ def execute_sell_orders():
     If all trades completed successfully return list of Trade objects.
 
     If either time constraint exceeded, cancel all unfulfilled orders
-    and resubmit them as an order of the type specified by the 
+    and resubmit them as an order of the type specified by the
     auxiliary_sell_type setting. Remove cancelled orders from global
     sell_orders and replace them with the new orders. Wait until new
-    orders are complete (with no time constraint) and return list of 
+    orders are complete (with no time constraint) and return list of
     Trade objects
     """
 
     logging.info('Executing sell orders')
 
     global sell_orders
-    
+
     global settings
     auxiliary_sell_type = settings['auxiliary_sell_type']
     timezone = pytz.timezone(settings['timezone'])
@@ -493,19 +439,19 @@ def execute_sell_orders():
         hours, minutes = sell_wait_duration.split(':')
         hours, minutes = int(hours), int(minutes)
         cutoff = submit_time + timedelta(hours=hours, minutes=minutes)
-    
+
     if sell_wait_until:
         hour, minute = sell_wait_until.split(':')
         hour, minute = int(hour), int(minute)
-        specified_time = datetime.now(timezone).replace(hour=hour, 
+        specified_time = datetime.now(timezone).replace(hour=hour,
                                                         minute=minute)
 
         if specified_time < cutoff:
             cutoff = specified_time
-    
+
     logging.info('Waiting until ' + str(cutoff))
-    
-    status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
+
+    status = 'WAIT'  # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
         ib.reqAllOpenOrders()
@@ -513,7 +459,7 @@ def execute_sell_orders():
         if trades_complete(trades):
             status = 'COMPLETE'
             break
-        
+
         if datetime.now(timezone) >= cutoff:
             status = 'REVISE'
             break
@@ -530,9 +476,9 @@ def execute_sell_orders():
             contract = trade.contract
             order = Order(action='SELL', orderType=auxiliary_sell_type,
                           totalQuantity=trade.remaining())
-            
+
             logging.info(f'resubmitting sell order for {contract.symbol}')
-            
+
             # Cancel incomplete oreders and remove them from trades
             ib.cancelOrder(trade.order)
             trades.remove(trade)
@@ -541,9 +487,9 @@ def execute_sell_orders():
             new_trade = ib.placeOrder(contract, order)
             new_trades.append(new_trade)
             trades.append(new_trade)
-        
+
         status = 'WAIT'
-    
+
     # Wait for new orders to complete
     while status == 'WAIT':
         ib.reqAllOpenOrders()
@@ -551,9 +497,9 @@ def execute_sell_orders():
         if trades_complete(new_trades):
             status = 'COMPLETE'
             break
-        
+
         time.sleep(.5)
-    
+
     return trades
 
 
@@ -578,19 +524,19 @@ def generate_buy_orders():
             ib.qualifyContracts(contract)
 
             number = row['Target (cnt)'] - row['Actual (cnt)']
-            number = number - (number % r) # Round down
+            number = number - (number % r)  # Round down
 
-            order = Order(action='BUY', orderType=primary_buy_type, 
+            order = Order(action='BUY', orderType=primary_buy_type,
                           totalQuantity=int(number))
 
             buy_orders.append((contract, order))
-    
+
     return buy_orders
 
 
 def execute_buy_orders():
     """
-    Execute all sell orders in global buy_orders. Wait for one of the 
+    Execute all sell orders in global buy_orders. Wait for one of the
     following conditions:
     1) All trades completed successfully
     2) Time specified by buy_wait_duration setting expires
@@ -599,14 +545,14 @@ def execute_buy_orders():
     If all trades completed successfully return list of Trade objects.
 
     If either time constraint exceeded, cancel all unfulfilled orders
-    and resubmit them as an order of the type specified by the 
+    and resubmit them as an order of the type specified by the
     auxiliary_buy_type setting. Remove cancelled orders from global
     buy_orders and replace them with the new orders. Wait until new
-    orders are complete (with no time constraint) and return list of 
+    orders are complete (with no time constraint) and return list of
     Trade objects
     """
     global buy_orders
-    
+
     global settings
     auxiliary_buy_type = settings['auxiliary_buy_type']
     timezone = pytz.timezone(settings['timezone'])
@@ -627,21 +573,21 @@ def execute_buy_orders():
         hours, minutes = buy_wait_duration.split(':')
         hours, minutes = int(hours), int(minutes)
         cutoff = submit_time + timedelta(hours=hours, minutes=minutes)
-    
+
     if buy_wait_until:
         hour, minute = buy_wait_until.split(':')
         hour, minute = int(hour), int(minute)
-        specified_time = datetime.now(timezone).replace(hour=hour, 
+        specified_time = datetime.now(timezone).replace(hour=hour,
                                                         minute=minute)
 
         if specified_time < cutoff:
             cutoff = specified_time
-    
+
     logging.info('Waiting until ' + str(cutoff))
 
     ib.openTrades()
 
-    status = 'WAIT' # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
+    status = 'WAIT'  # Status can be 'WAIT', 'COMPLETE' or 'REVISE'
 
     while status == 'WAIT':
         ib.reqAllOpenOrders()
@@ -649,7 +595,7 @@ def execute_buy_orders():
         if trades_complete(trades):
             status = 'COMPLETE'
             break
-        
+
         if datetime.now(timezone) >= cutoff:
             status = 'REVISE'
             break
@@ -665,7 +611,7 @@ def execute_buy_orders():
             contract = trade.contract
             order = Order(action='BUY', orderType=auxiliary_buy_type,
                           totalQuantity=trade.remaining())
-            
+
             ib.cancelOrder(trade.order)
             trades.remove(trade)
 
@@ -674,22 +620,18 @@ def execute_buy_orders():
             new_trade = ib.placeOrder(contract, order)
             new_trades.append(new_trade)
             trades.append(new_trade)
-    
+
     return trades
 
 
 def run():
     """ Perform the whole process """
-    
+
     load_settings()
     connect()
     get_tickers()
 
-    start = time.time()
     get_historical_data()
-    end = time.time()
-
-    logging.info(f'Getting historical data took {end - start} seconds')
 
     start = time.time()
     sharpe_ratios()
@@ -699,7 +641,7 @@ def run():
     end = time.time()
 
     logging.info(f'Analyzing data took {end - start} seconds')
-    
+
     generate_sell_orders()
     execute_sell_orders()
     generate_buy_orders()
