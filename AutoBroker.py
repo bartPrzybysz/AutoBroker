@@ -1,12 +1,14 @@
-import json
-from ib_insync import *
-import pandas as pd
 from typing import Set, Dict, List
-import time
 from datetime import datetime, timedelta
-import pytz
 import logging
 import math
+import json
+import time
+import pytz
+
+from ib_insync import *
+import pandas as pd
+
 
 SETTINGS_PATH = 'settings\\settings.json'
 TICKERS_PATH = 'settings\\tickers.xlsx'

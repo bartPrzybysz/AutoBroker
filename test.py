@@ -10,9 +10,11 @@ def get_sample_data():
 
 
 class TestSharpe(unittest.TestCase):
-    def TestUnadjustedSharpes(self):
-        sample_data = pd.read_csv('test/SampleData.csv', index_col=0, delimiter='\t')
+    def test_unadjusted_sharpes(self):
+        sample_data = pd.read_csv(
+            'test/SampleData.csv', index_col=0, delimiter='\t')
         self.assertIsNotNone(sample_data)
+
 
 if __name__ == '__main__':
     unittest.main()
