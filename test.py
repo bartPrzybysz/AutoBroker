@@ -39,22 +39,42 @@ def get_weekly_data(daily_data):
 
 
 class TestSharpe(unittest.TestCase):
+    expected_results = get_expected_results()
+    weekly_data = get_weekly_data(get_sample_data())
+
     def test_unadjusted_sharpes(self):
-        sample_data = get_sample_data()
-        historical_data = get_weekly_data(sample_data)
-
-        unadjusted_sharpes = AutoBroker.sharpe_ratios(historical_data)
-
-        expected_results = get_expected_results()
+        unadjusted_sharpes = AutoBroker.sharpe_ratios(self.weekly_data)
 
         tolerance = 0.04
 
         for ticker, sharpe in unadjusted_sharpes.items():
-            expected = float(expected_results.loc['Unadjusted Sharpe', ticker])
+            expected = float(
+                self.expected_results.loc['Unadjusted Sharpe', ticker])
+
             self.assertTrue(
                 expected - tolerance <= sharpe <= expected + tolerance,
                 msg=(f'{ticker} sharpe: {sharpe} expected: {expected} '
                      f'difference: {abs(sharpe - expected)}'))
+
+    def test_target_share(self):
+        AutoBroker.settings = {'max_portfolio_size': 13}
+        AutoBroker.historical_data = self.weekly_data
+        AutoBroker.sharpe_ratios()
+        AutoBroker.target_portfolio()
+
+        target_shares = AutoBroker.portfolio['Target (%)']
+        expected_shares = self.expected_results.loc['Target Share']
+
+        tolerance = 1
+
+        for ticker in list(target_shares.index):
+            share = float(target_shares[ticker])
+            expected = float(expected_shares[ticker].replace('%', ''))
+
+            self.assertTrue(
+                expected - tolerance <= share <= expected + tolerance,
+                msg=(f'{ticker} share: {share} expected: {expected}'
+                     f'difference: {abs(expected - share)}'))
 
 
 if __name__ == '__main__':
