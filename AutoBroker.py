@@ -199,7 +199,7 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
         global historical_data
         weekly_data = historical_data
 
-    weekly_change = historical_data.pct_change()
+    weekly_change = weekly_data.pct_change()
 
     tickers = set(weekly_change.columns)
 
