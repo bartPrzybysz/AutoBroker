@@ -2,7 +2,7 @@
 build/*
 launch.json
 *.spec
-new.*
-*.log
+log/*
+!log/sample.log
 .vscode
 Pipfile.lock

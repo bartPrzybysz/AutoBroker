@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta
 import pytz
 import logging
+import math
 
 SETTINGS_PATH = 'settings\\settings.json'
 TICKERS_PATH = 'settings\\tickers.xlsx'
@@ -96,7 +97,7 @@ def get_tickers(path: str = TICKERS_PATH) -> Set[str]:
     return tickers
 
 
-def get_historical_data(cont: Dict[str, Contract]=None) -> pd.DataFrame:
+def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
     """
     Get weekly historical data for all contracts going back 53 weeks.
 
@@ -123,11 +124,17 @@ def get_historical_data(cont: Dict[str, Contract]=None) -> pd.DataFrame:
     data_pull = pd.DataFrame()
 
     # Get historical data from ib api
+    # There's room for optimization here. We need 53 weeks of data but
+    # all duration strings greater than a year must be defined in terms
+    # of years. A '1 Y' durationStr only gives 52 weeks of data not the
+    # needed 53, so we request '2 Y' of data and trim what we don't
+    # need. If execution time is ever an issue this could be optimized
+    # by requesting first '1 Y' of data then '1 W' of data seperately
     for ticker in contracts.keys():
         bars = ib.reqHistoricalData(
             contract=contracts[ticker],
             endDateTime='',
-            durationStr='260 D',
+            durationStr='2 Y',
             barSizeSetting='1 day',
             whatToShow='ADJUSTED_LAST',
             useRTH=True
@@ -139,11 +146,17 @@ def get_historical_data(cont: Dict[str, Contract]=None) -> pd.DataFrame:
     end = time.time()
     logging.info(f'Data pull took {end-start} seconds')
 
-    data_pull = data_pull.iloc[::-1]  # reverse order
-    data_pull = data_pull.iloc[::5]  # select every 5th row
-    data_pull = data_pull.iloc[::-1]  # reverse order
+    cur_weekday = data_pull.index[-1].weekday()  # last weekday in datapull
+    weekday_dates = list(filter(lambda d: d.weekday() ==
+                                cur_weekday, data_pull.index))[-53:]
+    historical_data = data_pull.loc[weekday_dates]
 
-    historical_data = data_pull
+    for ticker, data in historical_data.items():
+        for date, value in data.items():
+            while math.isnan(value):
+                previous_date = date - timedelta(days=1)
+                value = data_pull[ticker][previous_date]
+                historical_data[ticker][date] = value
 
     return historical_data
 
@@ -215,7 +228,7 @@ def sharpe_ratios(weekly_data: pd.DataFrame = None) -> Dict[str, float]:
     return sharpes
 
 
-def get_prices(cont: Dict[str, Contract]=None) -> Dict[str, float]:
+def get_prices(cont: Dict[str, Contract] = None) -> Dict[str, float]:
     """
     Get current price of each ticker. Return set of ticker symbols
     mapped to a float value (USD). Results will also be stored in global
