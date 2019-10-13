@@ -6,8 +6,6 @@ import pandas as pd
 
 import AutoBroker
 
-AutoBroker.logging.info('Unit Testing')
-
 
 def get_sample_data():
     sample_data = pd.read_csv('test/SampleData.csv', index_col=0)

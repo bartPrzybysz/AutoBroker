@@ -27,16 +27,17 @@ portfolio = pd.DataFrame(columns=[
 sell_orders = list()
 buy_orders = list()
 
-# logger
-timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
-log_path = LOG_DIR + timestr + '.log'
-logging.basicConfig(
-    filename=log_path,
-    filemode='a+',
-    level=logging.INFO,
-    format='%(asctime)s|%(levelname)s|%(message)s'
-)
-logging.getLogger().addHandler(logging.StreamHandler())
+
+def start_logging():
+    timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = LOG_DIR + timestr + '.log'
+    logging.basicConfig(
+        filename=log_path,
+        filemode='a+',
+        level=logging.INFO,
+        format='%(asctime)s|%(levelname)s|%(message)s'
+    )
+    logging.getLogger().addHandler(logging.StreamHandler())
 
 
 def load_settings():
@@ -642,6 +643,7 @@ def execute_buy_orders():
 def run():
     """ Perform the whole process """
 
+    start_logging()
     load_settings()
     connect()
     get_tickers()
