@@ -1,7 +1,6 @@
 *.pyc
 build/*
 launch.json
-*.spec
 log/*
 !log/sample.log
 .vscode

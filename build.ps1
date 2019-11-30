@@ -2,20 +2,15 @@
 Remove-Item -Path "./dist/*" -Recurse
 
 # Create executable
-pyinstaller AutoBroker.py --onefile --exclude-module PyQt5
+pyinstaller main.spec
 
-# Create settings, log and cache directories
+# Create settings, and log directories
 New-Item -Path "./dist" -Name "settings" -ItemType "directory"
-New-Item -Path "./dist" -Name "cache" -ItemType "directory"
 New-Item -Path "./dist" -Name "log" -ItemType "directory"
 
 # Copy stuff over
 Copy-Item -Path "./settings/tickers.xlsx" -Destination "./dist/settings/"
-Copy-Item -Path "./Run AutoBroker.bat" -Destination "./dist/"
-Copy-Item -Path "./Run TWS.bat" -Destination "./dist/"
-Copy-Item -Path "./doc/*" -Destination "./dist"
-
-New-Item -Path "./dist/cache/" -Name "historical_data.json" -Value "{}"
+Copy-Item -Path "./include/*" -Recurse -Destination "./dist/"
 
 $default = @'
 {
