@@ -1,7 +1,10 @@
 *.pyc
-build/*
+__pycache__/
+build/
+dist/
 launch.json
 log/*
 !log/sample.log
 .vscode
 Pipfile.lock
+*.zip

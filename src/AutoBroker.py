@@ -158,7 +158,12 @@ def get_historical_data(cont: Dict[str, Contract] = None) -> pd.DataFrame:
         for date, value in data.items():
             while math.isnan(value):
                 previous_date = date - timedelta(days=1)
-                value = data_pull[ticker][previous_date]
+                try:
+                    value = data_pull[ticker][previous_date]
+                except KeyError:
+                    next_date = date + timedelta(days=1)
+                    value = data_pull[ticker][next_date]
+
                 historical_data[ticker][date] = value
 
     return historical_data
